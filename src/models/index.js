@@ -1,15 +1,19 @@
 import { Sequelize, DataTypes } from 'sequelize'
 import dotenv from 'dotenv'
-
-// Ensure .env is loaded when this module initializes. server.js also calls
-// dotenv.config(), but ES module imports are hoisted which can cause this
-// module to run before server.js executes dotenv. Loading here guarantees
-// environment variables are available for DB selection logic.
-// Load .env and override any existing env vars so the local `.env` values
-// always take precedence during development. This ensures the DATABASE_URL
-// from `backend/.env` is used even if the shell has earlier exports.
-dotenv.config({ override: true })
+import fs from 'fs'
 import path from 'path'
+
+// Load .env only in non-production when a .env file exists. This ensures
+// platform-provided environment variables (e.g. Railway) are not overridden
+// by a local file during deployment.
+try {
+  const envPath = path.join(process.cwd(), '.env')
+  if ((process.env.NODE_ENV || 'development') !== 'production' && fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath })
+  }
+} catch (e) {
+  // ignore
+}
 import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -26,38 +30,52 @@ const makeSqliteSequelize = () =>
     logging: process.env.NODE_ENV === 'production' ? false : console.log
   })
 
-// Debug: print key envs to help diagnose which DB config is used at runtime
-console.log('[models] DATABASE_URL=', process.env.DATABASE_URL)
-console.log('[models] DB_CLIENT=', process.env.DB_CLIENT, 'DB_HOST=', process.env.DB_HOST)
+// Helpful debug logging in non-production
+if ((process.env.NODE_ENV || 'development') !== 'production') {
+  console.log('[models] DATABASE_URL=', process.env.DATABASE_URL)
+  console.log('[models] DB_CLIENT=', process.env.DB_CLIENT, 'DB_HOST=', process.env.DB_HOST)
+}
 
 if (process.env.DATABASE_URL) {
   // Let Sequelize parse DATABASE_URL automatically for supported dialects
   console.log('[models] Using DATABASE_URL for connection')
+  // Parse SSL setting (some clouds require SSL connections). Set
+  // DATABASE_SSL=true in the Railway environment if needed.
+  const dialectOptions = {}
+  if (process.env.DATABASE_SSL === 'true' || process.env.DB_SSL === 'true') {
+    dialectOptions.ssl = { rejectUnauthorized: false }
+  }
+
   sequelize = new Sequelize(process.env.DATABASE_URL, {
     logging: process.env.NODE_ENV === 'production' ? false : console.log,
     pool: {
       max: 5,
       min: 0,
-      acquire: 20000,
+      acquire: 30000,
       idle: 10000
     },
-    dialectOptions: {
-      connectTimeout: 10000
-    },
+    dialectOptions: { connectTimeout: 15000, ...dialectOptions },
     retry: {
       match: [/ETIMEDOUT/, /ECONNRESET/, /EHOSTUNREACH/, /ECONNREFUSED/],
-      max: 3
+      max: 5
     }
   })
 } else if (process.env.DB_CLIENT === 'mysql' || process.env.DB_HOST) {
   // Prefer explicit MySQL connection via env vars when provided
-  console.log('[models] Using explicit DB_* env vars for MySQL')
+  if ((process.env.NODE_ENV || 'development') !== 'production') {
+    console.log('[models] Using explicit DB_* env vars for MySQL')
+  }
   const dbName = process.env.DB_NAME || 'hospital_system_002'
   const dbUser = process.env.DB_USER || 'root'
   const dbPass = process.env.DB_PASS || ''
   const dbHost = process.env.DB_HOST || '127.0.0.1'
   const dbPort = process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306
   console.log('[models] mysql config', { dbName, dbUser, dbHost, dbPort })
+  const dialectOptions = {}
+  if (process.env.DB_SSL === 'true' || process.env.DATABASE_SSL === 'true') {
+    dialectOptions.ssl = { rejectUnauthorized: false }
+  }
+
   sequelize = new Sequelize(dbName, dbUser, dbPass, {
     host: dbHost,
     port: dbPort,
@@ -66,15 +84,13 @@ if (process.env.DATABASE_URL) {
     pool: {
       max: 5,
       min: 0,
-      acquire: 20000,
+      acquire: 30000,
       idle: 10000
     },
-    dialectOptions: {
-      connectTimeout: 10000
-    },
+    dialectOptions: { connectTimeout: 15000, ...dialectOptions },
     retry: {
       match: [/ETIMEDOUT/, /ECONNRESET/, /EHOSTUNREACH/, /ECONNREFUSED/],
-      max: 3
+      max: 5
     }
   })
 } else {
@@ -141,9 +157,17 @@ export async function syncDatabase(options = { alter: true }) {
     await sequelize.authenticate()
   } catch (err) {
     console.error('[models] DB connection failed:', err && err.message ? err.message : err)
-    // If the configured DB is not SQLite, fall back to local SQLite so the app can start
-    if (sequelize.getDialect && sequelize.getDialect() !== 'sqlite') {
-      console.warn('[models] Falling back to local SQLite database due to connection issues')
+    // In production we want to fail-fast on DB connection errors. In
+    // development only, fall back to a local SQLite file so the app stays
+    // runnable for iterative work.
+    const dialect = typeof sequelize.getDialect === 'function' ? sequelize.getDialect() : null
+    if ((process.env.NODE_ENV || 'development') === 'production') {
+      // rethrow to stop startup in production (so platform shows the failure)
+      throw err
+    }
+
+    if (dialect && dialect !== 'sqlite') {
+      console.warn('[models] Falling back to local SQLite database due to connection issues (development only)')
       sequelize = makeSqliteSequelize()
     } else {
       // already sqlite or unknown — rethrow

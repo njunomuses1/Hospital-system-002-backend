@@ -2,7 +2,7 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 import http from 'http'
-import app from './app_fixed.js'
+import app from './app.js'
 import { syncDatabase } from './models/index.js'
 
 const port = Number(process.env.PORT || 5000)

@@ -1,0 +1,12 @@
+# Local env
+.env
+
+# SQLite data files
+data/database.sqlite
+data/*.sqlite
+	node_modules
+
+# Logs
+npm-debug.log*
+
+.DS_Store
