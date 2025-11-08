@@ -21,6 +21,11 @@ const defaultSqlite = `sqlite:${path.join(__dirname, '..', '..', 'data', 'databa
 
 let sequelize
 
+const makeSqliteSequelize = () =>
+  new Sequelize(defaultSqlite, {
+    logging: process.env.NODE_ENV === 'production' ? false : console.log
+  })
+
 // Debug: print key envs to help diagnose which DB config is used at runtime
 console.log('[models] DATABASE_URL=', process.env.DATABASE_URL)
 console.log('[models] DB_CLIENT=', process.env.DB_CLIENT, 'DB_HOST=', process.env.DB_HOST)
@@ -29,7 +34,20 @@ if (process.env.DATABASE_URL) {
   // Let Sequelize parse DATABASE_URL automatically for supported dialects
   console.log('[models] Using DATABASE_URL for connection')
   sequelize = new Sequelize(process.env.DATABASE_URL, {
-    logging: process.env.NODE_ENV === 'production' ? false : console.log
+    logging: process.env.NODE_ENV === 'production' ? false : console.log,
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 20000,
+      idle: 10000
+    },
+    dialectOptions: {
+      connectTimeout: 10000
+    },
+    retry: {
+      match: [/ETIMEDOUT/, /ECONNRESET/, /EHOSTUNREACH/, /ECONNREFUSED/],
+      max: 3
+    }
   })
 } else if (process.env.DB_CLIENT === 'mysql' || process.env.DB_HOST) {
   // Prefer explicit MySQL connection via env vars when provided
@@ -44,17 +62,25 @@ if (process.env.DATABASE_URL) {
     host: dbHost,
     port: dbPort,
     dialect: 'mysql',
-    dialectOptions: {
-      // allow win32 / local default handling
+    logging: process.env.NODE_ENV === 'production' ? false : console.log,
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 20000,
+      idle: 10000
     },
-    logging: process.env.NODE_ENV === 'production' ? false : console.log
+    dialectOptions: {
+      connectTimeout: 10000
+    },
+    retry: {
+      match: [/ETIMEDOUT/, /ECONNRESET/, /EHOSTUNREACH/, /ECONNREFUSED/],
+      max: 3
+    }
   })
 } else {
   console.log('[models] Falling back to SQLite at', defaultSqlite)
   // default to SQLite file
-  sequelize = new Sequelize(defaultSqlite, {
-    logging: process.env.NODE_ENV === 'production' ? false : console.log
-  })
+  sequelize = makeSqliteSequelize()
 }
 
 const User = sequelize.define('User', {
@@ -111,7 +137,21 @@ Record.belongsTo(Doctor, { foreignKey: 'doctorId' })
 export const models = { User, Patient, Doctor, Appointment, Record }
 
 export async function syncDatabase(options = { alter: true }) {
-  await sequelize.authenticate()
+  try {
+    await sequelize.authenticate()
+  } catch (err) {
+    console.error('[models] DB connection failed:', err && err.message ? err.message : err)
+    // If the configured DB is not SQLite, fall back to local SQLite so the app can start
+    if (sequelize.getDialect && sequelize.getDialect() !== 'sqlite') {
+      console.warn('[models] Falling back to local SQLite database due to connection issues')
+      sequelize = makeSqliteSequelize()
+    } else {
+      // already sqlite or unknown — rethrow
+      throw err
+    }
+  }
+
+  // perform sync on whichever sequelize instance we have (remote or fallback)
   await sequelize.sync(options)
 }
 
