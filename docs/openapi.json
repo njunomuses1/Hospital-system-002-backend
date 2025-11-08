@@ -1,0 +1,70 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Hospital System API",
+    "version": "v1",
+    "description": "Minimal OpenAPI doc for backend endpoints (auth, patients, doctors, appointments, records)"
+  },
+  "servers": [
+    { "url": "http://localhost:5000/v1" }
+  ],
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "summary": "Register a user",
+        "requestBody": { "content": { "application/json": { "schema": {"$ref":"#/components/schemas/RegisterRequest"} } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } } }
+      }
+    },
+    "/auth/login": {
+      "post": { "summary": "Login", "requestBody": { "content": { "application/json": { "schema": {"$ref":"#/components/schemas/LoginRequest"} } } }, "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } } } }
+    },
+    "/patients": {
+      "get": { "summary": "List patients (auth required)" },
+      "post": { "summary": "Create patient (auth required)" }
+    },
+    "/doctors": { "get": { "summary": "List doctors (auth required)" }, "post": { "summary": "Create doctor (auth required)" } },
+    "/appointments": { "get": { "summary": "List appointments" }, "post": { "summary": "Create appointment" } },
+    "/records": {
+      "get": { "summary": "List records (auth required)" },
+      "post": { "summary": "Create a record (prescription/note) (auth required)" }
+    }
+  }
+  ,
+  "components": {
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "email": { "type": "string" }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string" },
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string" }
+        }
+      }
+    }
+  }
+}

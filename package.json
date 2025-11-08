@@ -1,0 +1,32 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "dev": "nodemon --quiet src/server.js",
+    "start": "node src/server.js",
+    "lint": "echo 'No linter configured for backend'"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^7.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.6.0",
+    "node-fetch": "^3.3.2",
+    "sequelize": "^6.32.1",
+    "sqlite3": "^5.1.6",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
